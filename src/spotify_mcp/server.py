@@ -3,8 +3,15 @@
 from .app import mcp  # noqa: F401 — re-export for convenience
 
 # Import tools modules to trigger @mcp.tool() registration
-from .tools import dance_mix as dance_mix  # noqa: F401
+from .tools import albums as albums  # noqa: F401
+from .tools import artists as artists  # noqa: F401
+from .tools import audiobooks as audiobooks  # noqa: F401
+from .tools import library as library  # noqa: F401
+from .tools import player as player  # noqa: F401
 from .tools import playlists as playlists  # noqa: F401
+from .tools import search as search  # noqa: F401
+from .tools import shows as shows  # noqa: F401
+from .tools import tracks as tracks  # noqa: F401
 from .tools import users as users  # noqa: F401
 
 
