@@ -27,7 +27,7 @@ async def get_my_playlists(limit: int = 50, offset: int = 0) -> str:
         playlists.append({
             "id": item["id"],
             "name": item["name"],
-            "tracks_total": item.get("tracks", {}).get("total", 0),
+            "tracks_total": item.get("items", {}).get("total", 0) if isinstance(item.get("items"), dict) else 0,
             "owner": item.get("owner", {}).get("display_name"),
             "public": item.get("public"),
             "uri": item.get("uri"),
@@ -57,7 +57,7 @@ async def get_playlist(playlist_id: str) -> str:
         "id": data["id"],
         "name": data.get("name"),
         "description": data.get("description"),
-        "tracks_total": data.get("tracks", {}).get("total", 0),
+        "tracks_total": data.get("items", {}).get("total", 0) if isinstance(data.get("items"), dict) else 0,
         "owner": data.get("owner", {}).get("display_name"),
         "public": data.get("public"),
         "uri": data.get("uri"),
@@ -204,4 +204,95 @@ async def add_items_to_playlist(playlist_id: str, uris: list[str]) -> str:
     return json.dumps({
         "added": len(uris),
         "snapshot_ids": results,
+    }, indent=2)
+
+
+@mcp.tool()
+async def update_playlist_details(
+    playlist_id: str,
+    name: str = "",
+    description: str = "",
+    public: bool | None = None,
+) -> str:
+    """Update a playlist's name, description, or visibility.
+
+    Args:
+        playlist_id: The Spotify playlist ID.
+        name: New name for the playlist (leave empty to keep current).
+        description: New description (leave empty to keep current).
+        public: Set to True for public, False for private, or omit to keep current.
+
+    Returns confirmation of update.
+    """
+    body: dict[str, Any] = {}
+    if name:
+        body["name"] = name
+    if description:
+        body["description"] = description
+    if public is not None:
+        body["public"] = public
+
+    if not body:
+        return json.dumps({"error": "No fields to update. Provide name, description, or public."})
+
+    async with SpotifyClient() as sp:
+        await sp.put(f"playlists/{playlist_id}", json=body)
+
+    return json.dumps({"status": "updated", "playlist_id": playlist_id, "updated_fields": list(body.keys())})
+
+
+@mcp.tool()
+async def remove_items_from_playlist(playlist_id: str, uris: list[str]) -> str:
+    """Remove tracks from a playlist.
+
+    Args:
+        playlist_id: The Spotify playlist ID.
+        uris: List of Spotify track URIs to remove (e.g., ["spotify:track:xxx"]).
+
+    Returns confirmation with snapshot_id.
+    """
+    items = [{"uri": uri} for uri in uris]
+
+    async with SpotifyClient() as sp:
+        data = await sp.delete(
+            f"playlists/{playlist_id}/items",
+            json={"items": items},
+        )
+
+    return json.dumps({
+        "removed": len(uris),
+        "snapshot_id": data.get("snapshot_id"),
+    }, indent=2)
+
+
+@mcp.tool()
+async def reorder_playlist_items(
+    playlist_id: str,
+    range_start: int,
+    insert_before: int,
+    range_length: int = 1,
+) -> str:
+    """Reorder tracks in a playlist.
+
+    Args:
+        playlist_id: The Spotify playlist ID.
+        range_start: Position of the first item to move (0-based).
+        insert_before: Position to insert the items before (0-based).
+        range_length: Number of items to move (default 1).
+
+    Returns confirmation with snapshot_id.
+    """
+    async with SpotifyClient() as sp:
+        data = await sp.put(
+            f"playlists/{playlist_id}/items",
+            json={
+                "range_start": range_start,
+                "insert_before": insert_before,
+                "range_length": range_length,
+            },
+        )
+
+    return json.dumps({
+        "status": "reordered",
+        "snapshot_id": data.get("snapshot_id"),
     }, indent=2)

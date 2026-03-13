@@ -133,8 +133,8 @@ class SpotifyClient:
                 message = response.text
             raise SpotifyAPIError(response.status_code, message)
 
-        # Some Spotify endpoints return 204 No Content
-        if response.status_code == 204:
+        # Some Spotify endpoints return 200/204 with no body
+        if response.status_code == 204 or not response.content:
             return {}
 
         return response.json()  # type: ignore[no-any-return]
