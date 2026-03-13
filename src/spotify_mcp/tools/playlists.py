@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..client import SpotifyClient
 from ..app import mcp
+from ..client import SpotifyClient
 
 
 @mcp.tool()
@@ -22,7 +22,7 @@ async def get_my_playlists(limit: int = 50, offset: int = 0) -> str:
     async with SpotifyClient() as sp:
         data = await sp.get("me/playlists", params={"limit": limit, "offset": offset})
 
-    playlists = []
+    playlists: list[dict[str, Any]] = []
     for item in data.get("items", []):
         playlists.append({
             "id": item["id"],
@@ -65,7 +65,7 @@ async def get_playlist(playlist_id: str) -> str:
     }, indent=2)
 
 
-async def _fetch_all_playlist_items(sp: SpotifyClient, playlist_id: str) -> list[dict[str, Any]]:
+async def fetch_all_playlist_items(sp: SpotifyClient, playlist_id: str) -> list[dict[str, Any]]:
     """Fetch ALL tracks from a playlist, handling pagination.
 
     Returns list of items with track info and added_at timestamp.
@@ -80,16 +80,17 @@ async def _fetch_all_playlist_items(sp: SpotifyClient, playlist_id: str) -> list
             params={
                 "limit": limit,
                 "offset": offset,
-                "fields": "items(added_at,track(id,name,uri,artists(name),album(name),duration_ms)),total,next",
+                "additional_types": "track",
             },
         )
 
-        for item in data.get("items", []):
-            track = item.get("track")
+        for entry in data.get("items", []):
+            # Post-Feb 2026 API: track data is under "item", not "track"
+            track = entry.get("item") or entry.get("track")
             if track is None:
                 continue  # Skip removed/unavailable tracks
             items.append({
-                "added_at": item.get("added_at"),
+                "added_at": entry.get("added_at"),
                 "track_id": track.get("id"),
                 "track_name": track.get("name"),
                 "track_uri": track.get("uri"),
@@ -122,17 +123,18 @@ async def get_playlist_items(playlist_id: str, limit: int = 100, offset: int = 0
             params={
                 "limit": limit,
                 "offset": offset,
-                "fields": "items(added_at,track(id,name,uri,artists(name),album(name),duration_ms)),total,next",
+                "additional_types": "track",
             },
         )
 
-    items = []
-    for item in data.get("items", []):
-        track = item.get("track")
+    items: list[dict[str, Any]] = []
+    for entry in data.get("items", []):
+        # Post-Feb 2026 API: track data is under "item", not "track"
+        track = entry.get("item") or entry.get("track")
         if track is None:
             continue
         items.append({
-            "added_at": item.get("added_at"),
+            "added_at": entry.get("added_at"),
             "track_id": track.get("id"),
             "track_name": track.get("name"),
             "track_uri": track.get("uri"),
@@ -160,12 +162,8 @@ async def create_playlist(name: str, description: str = "", public: bool = False
     Returns the new playlist's ID, URL, and URI.
     """
     async with SpotifyClient() as sp:
-        # Get current user ID first
-        me = await sp.get("me")
-        user_id = me["id"]
-
         data = await sp.post(
-            f"users/{user_id}/playlists",
+            "me/playlists",
             json={
                 "name": name,
                 "description": description,
@@ -194,7 +192,7 @@ async def add_items_to_playlist(playlist_id: str, uris: list[str]) -> str:
     """
     async with SpotifyClient() as sp:
         # Spotify allows max 100 URIs per request
-        results = []
+        results: list[Any] = []
         for i in range(0, len(uris), 100):
             batch = uris[i:i + 100]
             data = await sp.post(

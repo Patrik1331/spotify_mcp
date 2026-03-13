@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from ..client import SpotifyClient
 from ..app import mcp
+from ..client import SpotifyClient
 
 
 @mcp.tool()

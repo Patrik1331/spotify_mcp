@@ -3,9 +3,9 @@
 from .app import mcp  # noqa: F401 — re-export for convenience
 
 # Import tools modules to trigger @mcp.tool() registration
-from .tools import playlists  # noqa: F401, E402
-from .tools import users  # noqa: F401, E402
-from .tools import dance_mix  # noqa: F401, E402
+from .tools import dance_mix as dance_mix  # noqa: F401
+from .tools import playlists as playlists  # noqa: F401
+from .tools import users as users  # noqa: F401
 
 
 def main():

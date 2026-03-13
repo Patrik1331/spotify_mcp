@@ -15,12 +15,33 @@ Control Spotify from Claude — search, manage playlists, control playback, and 
 
 ## Setup
 
-### 1. Create Spotify App
+### 1. Create a Spotify App
 
-1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-2. Create a new app
-3. Set redirect URI to `http://localhost:8888/callback`
-4. Note your Client ID and Client Secret
+1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+2. Click **Create app**
+3. Fill in the app details:
+   - **App name**: Choose any name (e.g., `spotify-mcp`)
+   - **App description**: MCP server for Spotify
+   - **Redirect URIs**: `http://127.0.0.1:8888/callback` (see below)
+   - **Which API/SDKs are you planning to use?**: Select **Web API**
+4. Click **Save**
+5. Go to **Settings** and note your **Client ID** and **Client Secret**
+
+#### Redirect URI Configuration
+
+Spotify enforces strict rules for redirect URIs ([documentation](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri)):
+
+- **HTTPS is required** for all redirect URIs, **except** loopback IP addresses
+- **`localhost` is not allowed** — you must use the IP address `127.0.0.1` instead
+- Loopback addresses (`http://127.0.0.1`) are the only exception where HTTP is permitted
+
+Set your redirect URI to:
+
+```
+http://127.0.0.1:8888/callback
+```
+
+> **Important:** Do not use `localhost`, `https://localhost`, or any variation with `localhost`. Spotify will reject these with "Invalid redirect URI" or "Insecure redirect URI" errors.
 
 ### 2. Install
 
@@ -34,7 +55,14 @@ uv sync
 
 ```bash
 cp .env.example .env
-# Edit .env with your Spotify credentials
+```
+
+Edit `.env` with your Spotify credentials:
+
+```env
+SPOTIFY_CLIENT_ID=your_client_id_here
+SPOTIFY_CLIENT_SECRET=your_client_secret_here
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
 ```
 
 ### 4. Authenticate
@@ -43,7 +71,7 @@ cp .env.example .env
 uv run spotify-mcp-auth
 ```
 
-This opens your browser for Spotify login. Tokens are saved to `~/.spotify_mcp/tokens.json`.
+This opens your browser for Spotify authorization. After approving, tokens are saved to `~/.spotify_mcp/tokens.json` and refreshed automatically.
 
 ### 5. Add to Claude Code
 

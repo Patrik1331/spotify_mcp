@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import ssl
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -160,7 +161,8 @@ def run_auth_flow() -> None:
 
     # Parse redirect URI to determine server port
     parsed_redirect = urlparse(SPOTIFY_REDIRECT_URI)
-    server_port = parsed_redirect.port or 8888
+    default_port = 443 if parsed_redirect.scheme == "https" else 80
+    server_port = parsed_redirect.port or default_port
 
     class CallbackHandler(BaseHTTPRequestHandler):
         """HTTP handler that captures the OAuth callback."""
@@ -168,6 +170,11 @@ def run_auth_flow() -> None:
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
+
+            # Ignore requests without OAuth params (favicon, preflight, etc.)
+            if "code" not in params and "error" not in params:
+                self._respond("Waiting for authorization...")
+                return
 
             if "error" in params:
                 auth_result["error"] = params["error"][0]
@@ -201,12 +208,30 @@ def run_auth_flow() -> None:
 
     # Start local server, open browser, wait for callback
     server = HTTPServer(("localhost", server_port), CallbackHandler)
-    print(f"Opening browser for Spotify authorization...")
+
+    # Wrap with SSL if redirect URI uses HTTPS
+    if SPOTIFY_REDIRECT_URI.startswith("https://"):
+        cert_dir = TOKEN_DIR / "certs"
+        certfile = cert_dir / "localhost.crt"
+        keyfile = cert_dir / "localhost.key"
+        if not certfile.exists() or not keyfile.exists():
+            raise RuntimeError(
+                f"HTTPS redirect requires SSL certs at {cert_dir}/. "
+                "Generate with: openssl req -x509 -newkey rsa:2048 "
+                "-keyout localhost.key -out localhost.crt -days 365 -nodes -subj '/CN=localhost'"
+            )
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=str(certfile), keyfile=str(keyfile))
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+
+    print("Opening browser for Spotify authorization...")
     print(f"If it doesn't open automatically, visit:\n{auth_url}\n")
     webbrowser.open(auth_url)
 
-    # Handle a single request (the OAuth callback)
-    server.handle_request()
+    # Handle requests until we get the OAuth callback (code or error)
+    server.timeout = 120  # 2 minute timeout
+    while auth_result["code"] is None and auth_result["error"] is None:
+        server.handle_request()
     server.server_close()
 
     if auth_result["error"]:

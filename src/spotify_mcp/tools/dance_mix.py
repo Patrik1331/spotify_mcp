@@ -10,9 +10,9 @@ import json
 import random
 from typing import Any
 
-from ..client import SpotifyClient
 from ..app import mcp
-from .playlists import _fetch_all_playlist_items
+from ..client import SpotifyClient
+from .playlists import fetch_all_playlist_items
 
 
 def _split_old_new(
@@ -121,8 +121,8 @@ async def generate_dance_mix(
     """
     async with SpotifyClient() as sp:
         # Fetch all tracks from both playlists
-        items_a = await _fetch_all_playlist_items(sp, playlist_a_id)
-        items_b = await _fetch_all_playlist_items(sp, playlist_b_id)
+        items_a = await fetch_all_playlist_items(sp, playlist_a_id)
+        items_b = await fetch_all_playlist_items(sp, playlist_b_id)
 
         if not items_a:
             return json.dumps({"error": f"Playlist A ({playlist_a_id}) is empty or has no tracks."})
@@ -137,14 +137,13 @@ async def generate_dance_mix(
         sequence = _build_3_3_sequence(old_a, new_a, old_b, new_b, block_size)
 
         if not sequence:
-            return json.dumps({"error": "Could not build a sequence — source playlists may be too small."})
+            return json.dumps({
+                "error": "Could not build a sequence — source playlists may be too small.",
+            })
 
         # Create the new playlist
-        me = await sp.get("me")
-        user_id = me["id"]
-
         playlist_data = await sp.post(
-            f"users/{user_id}/playlists",
+            "me/playlists",
             json={
                 "name": name,
                 "description": description or f"Dance mix: {block_size}-{block_size} pattern",
@@ -160,9 +159,9 @@ async def generate_dance_mix(
             await sp.post(f"playlists/{new_playlist_id}/items", json={"uris": batch})
 
     # Build summary
-    source_counts = {}
+    source_counts: dict[str, int] = {}
     for item in sequence:
-        src = item.get("_source", "unknown")
+        src: str = item.get("_source", "unknown")
         source_counts[src] = source_counts.get(src, 0) + 1
 
     return json.dumps({
