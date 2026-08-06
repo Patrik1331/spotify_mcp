@@ -53,17 +53,22 @@ uv sync
 
 ### 3. Configure
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your Spotify credentials:
+Create `~/.spotify_mcp/.env` (`C:\Users\<you>\.spotify_mcp\.env` on Windows):
 
 ```env
 SPOTIFY_CLIENT_ID=your_client_id_here
-SPOTIFY_CLIENT_SECRET=your_client_secret_here
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
 ```
+
+This is the only file you need to create. The server reads it from that fixed
+path, so it works no matter which directory the MCP client launches it from —
+credentials never belong in your MCP client's config file.
+
+`SPOTIFY_CLIENT_SECRET` is optional: the auth flow uses PKCE and does not need
+it. Set it only if your Spotify app requires a confidential client.
+
+For local development you can instead keep a `.env` in the repo root
+(`cp .env.example .env`); `~/.spotify_mcp/.env` takes precedence.
 
 ### 4. Authenticate
 
@@ -75,18 +80,17 @@ This opens your browser for Spotify authorization. After approving, tokens are s
 
 ### 5. Add to Claude Code
 
-Add to your Claude Code MCP settings (`~/.claude/claude_desktop_config.json`):
+One command, no credentials in the config:
 
-```json
-{
-  "mcpServers": {
-    "spotify": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/spotify_mcp", "run", "spotify-mcp"]
-    }
-  }
-}
+```bash
+claude mcp add spotify --scope user -- \
+  uvx --python 3.12 --from git+https://github.com/Patrik1331/spotify_mcp.git spotify-mcp
 ```
+
+`--scope user` registers the server for every directory. Credentials come from
+`~/.spotify_mcp/.env` (step 3) — do not add an `env` block here.
+
+Restart Claude Code afterwards; MCP servers are loaded at startup.
 
 ## Usage Examples
 

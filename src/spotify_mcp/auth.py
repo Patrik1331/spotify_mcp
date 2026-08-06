@@ -16,6 +16,13 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 from dotenv import load_dotenv
 
+CONFIG_DIR = Path.home() / ".spotify_mcp"
+
+# An MCP client launches this server from an arbitrary working directory, so a
+# bare load_dotenv() cannot find the credentials. Read them from a fixed path
+# instead; the repo-local .env stays as a development fallback (load_dotenv
+# never overrides values that are already set).
+load_dotenv(CONFIG_DIR / ".env")
 load_dotenv()
 
 SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")
@@ -40,7 +47,7 @@ SCOPES = " ".join([
     "playlist-modify-private",
 ])
 
-TOKEN_DIR = Path.home() / ".spotify_mcp"
+TOKEN_DIR = CONFIG_DIR
 TOKEN_FILE = TOKEN_DIR / "tokens.json"
 
 
