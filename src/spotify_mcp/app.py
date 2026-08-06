@@ -1,5 +1,5 @@
-"""FastMCP application instance — imported by tools and server."""
+"""MCPServer application instance — imported by tools and server."""
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("spotify-mcp")
+mcp = MCPServer("spotify-mcp")
