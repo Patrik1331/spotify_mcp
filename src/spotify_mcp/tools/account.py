@@ -24,21 +24,43 @@ from ..auth import (
 from ..client import SpotifyClient
 
 
-def _client_supports_url_elicitation(ctx: Context) -> bool:
-    """Whether the connected client can show a URL-mode elicitation prompt."""
+def _url_elicitation_refused(ctx: Context) -> bool:
+    """Whether the client told us it does *not* handle URL-mode elicitation.
+
+    Only an explicit `elicitation` declaration that omits `url` counts. A client
+    that declares nothing has not refused anything: capabilities can arrive per
+    request rather than at initialize, so treating silence as "unsupported"
+    means never sending the prompt at all.
+    """
     capabilities = ctx.client_capabilities
-    elicitation = getattr(capabilities, "elicitation", None) if capabilities else None
-    return getattr(elicitation, "url", None) is not None
+    if capabilities is None:
+        return False
+    elicitation = getattr(capabilities, "elicitation", None)
+    if elicitation is None:
+        return False
+    return getattr(elicitation, "url", None) is None
+
+
+def _manual_fallback(url: str, reason: str) -> RuntimeError:
+    """Turn an unusable prompt into a tool error that still carries the URL."""
+    return RuntimeError(
+        f"{reason} Open this URL in your browser to finish signing in, then call "
+        f"`auth_status` to confirm:\n{url}"
+    )
 
 
 @mcp.tool()
-async def auth_status() -> str:
+async def auth_status(ctx: Context) -> str:
     """Check whether this server is configured and signed in to Spotify.
 
     Use this when a Spotify tool fails, or to verify setup after installing.
 
     Returns the credential and sign-in state plus the exact next step to take.
     """
+    # Reported because a silent fallback to "open this URL yourself" is
+    # otherwise indistinguishable from the sign-in prompt simply not appearing.
+    url_prompts = "refused by client" if _url_elicitation_refused(ctx) else "will be attempted"
+
     missing = missing_credentials()
     if missing:
         return json.dumps({
@@ -46,6 +68,7 @@ async def auth_status() -> str:
             "signed_in": False,
             "env_file": str(ENV_FILE),
             "missing": missing,
+            "url_prompts": url_prompts,
             "next_step": setup_hint(),
         }, indent=2)
 
@@ -54,6 +77,7 @@ async def auth_status() -> str:
             "configured": True,
             "signed_in": False,
             "env_file": str(ENV_FILE),
+            "url_prompts": url_prompts,
             "next_step": "Call the `authenticate` tool to sign in to Spotify.",
         }, indent=2)
 
@@ -78,46 +102,44 @@ async def authenticate(ctx: Context) -> str:
 
     Returns the signed-in account, or what to fix if sign-in is not possible.
     """
-    missing = missing_credentials()
-    if missing:
-        return json.dumps({
-            "status": "not_configured",
-            "env_file": str(ENV_FILE),
-            "missing": missing,
-            "next_step": setup_hint(),
-        }, indent=2)
+    # Failures raise: a JSON body saying "failed" is still a successful tool
+    # result, so the client reports the sign-in as having gone through.
+    if missing_credentials():
+        raise RuntimeError(setup_hint())
 
     elicitation_id = f"spotify-auth-{secrets.token_urlsafe(8)}"
-    declined: dict[str, str] = {}
+    prompt_sent = False
 
     async def present(url: str) -> bool:
-        # Clients that don't implement URL mode must not be sent the request at
-        # all, so fall back to handing the URL back as text.
-        if not _client_supports_url_elicitation(ctx):
-            declined["reason"] = (
-                "This client cannot open authorization URLs for a server. "
-                f"Open this URL manually to finish signing in:\n{url}"
+        nonlocal prompt_sent
+        if _url_elicitation_refused(ctx):
+            raise _manual_fallback(
+                url, "This client does not support server-initiated URL prompts."
             )
-            return False
-        result = await ctx.elicit_url(
-            message="Authorize spotify-mcp to access your Spotify account.",
-            url=url,
-            elicitation_id=elicitation_id,
-        )
+
+        try:
+            result = await ctx.elicit_url(
+                message="Authorize spotify-mcp to access your Spotify account.",
+                url=url,
+                elicitation_id=elicitation_id,
+            )
+        except Exception as exc:  # noqa: BLE001 — any transport failure is the same to us
+            raise _manual_fallback(
+                url, f"Could not show the authorization prompt ({exc})."
+            ) from exc
+
+        prompt_sent = True
         if result.action != "accept":
-            declined["reason"] = f"Authorization was {result.action}ed."
-            return False
+            raise RuntimeError(
+                f"Authorization was {result.action}ed. Call `authenticate` again "
+                "to retry."
+            )
         return True
 
     try:
         await authorize(present)
-    except RuntimeError as exc:
-        return json.dumps({
-            "status": "failed",
-            "reason": declined.get("reason") or str(exc),
-        }, indent=2)
     finally:
-        if _client_supports_url_elicitation(ctx):
+        if prompt_sent:
             await ctx.session.send_elicit_complete(elicitation_id)
 
     async with SpotifyClient() as sp:
