@@ -16,13 +16,41 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import httpx
 from dotenv import load_dotenv
 
-CONFIG_DIR = Path.home() / ".spotify_mcp"
+CONFIG_DIR = Path.home() / ".claude-mcp" / "spotify-mcp"
+ENV_FILE = CONFIG_DIR / ".env"
+
+ENV_TEMPLATE = """\
+# Spotify credentials for spotify-mcp.
+# Get them at https://developer.spotify.com/dashboard (Settings -> Client ID).
+# The redirect URI must match your Spotify app exactly; Spotify rejects
+# `localhost`, so use the loopback IP: http://127.0.0.1:8888/callback
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+SPOTIFY_REDIRECT_URI=
+"""
+
+
+def _ensure_env_file() -> None:
+    """Create an empty .env template on first run so there is something to fill in.
+
+    Never raises: a read-only home directory must not stop the server from
+    starting, since the credentials may also come from the process environment.
+    """
+    try:
+        if ENV_FILE.exists():
+            return
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        ENV_FILE.write_text(ENV_TEMPLATE, encoding="utf-8")
+    except OSError:
+        pass
+
 
 # An MCP client launches this server from an arbitrary working directory, so a
 # bare load_dotenv() cannot find the credentials. Read them from a fixed path
 # instead; the repo-local .env stays as a development fallback (load_dotenv
 # never overrides values that are already set).
-load_dotenv(CONFIG_DIR / ".env")
+_ensure_env_file()
+load_dotenv(ENV_FILE)
 load_dotenv()
 
 SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")

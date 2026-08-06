@@ -53,20 +53,31 @@ uv sync
 
 ### 3. Configure
 
-Create `~/.spotify_mcp/.env` (`C:\Users\<you>\.spotify_mcp\.env` on Windows):
+All server data lives in one directory:
 
-```env
-SPOTIFY_CLIENT_ID=your_client_id_here
-SPOTIFY_CLIENT_SECRET=your_client_secret_here
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
+```
+~/.claude-mcp/spotify-mcp/          (C:\Users\<you>\.claude-mcp\spotify-mcp\ on Windows)
+├── .env          your credentials
+├── tokens.json   written by the auth flow, refreshed automatically
+└── certs/        only if you use an HTTPS redirect URI
 ```
 
-This is the only file you need to create. The server reads it from that fixed
-path, so it works no matter which directory the MCP client launches it from —
-credentials never belong in your MCP client's config file.
+The server creates `.env` with empty values on first run, so just start it once
+and fill in the blanks:
+
+```env
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=
+SPOTIFY_REDIRECT_URI=
+```
+
+Use `http://127.0.0.1:8888/callback` as the redirect URI, matching your Spotify
+app. The server reads this fixed path, so it works no matter which directory the
+MCP client launches it from — credentials never belong in your MCP client's
+config file.
 
 For local development you can instead keep a `.env` in the repo root
-(`cp .env.example .env`); `~/.spotify_mcp/.env` takes precedence.
+(`cp .env.example .env`); `~/.claude-mcp/spotify-mcp/.env` takes precedence.
 
 ### 4. Authenticate
 
@@ -74,7 +85,7 @@ For local development you can instead keep a `.env` in the repo root
 uv run spotify-mcp-auth
 ```
 
-This opens your browser for Spotify authorization. After approving, tokens are saved to `~/.spotify_mcp/tokens.json` and refreshed automatically.
+This opens your browser for Spotify authorization. After approving, tokens are saved to `~/.claude-mcp/spotify-mcp/tokens.json` and refreshed automatically.
 
 ### 5. Add to Claude Code
 
@@ -86,7 +97,7 @@ claude mcp add spotify --scope user -- \
 ```
 
 `--scope user` registers the server for every directory. Credentials come from
-`~/.spotify_mcp/.env` (step 3) — do not add an `env` block here.
+`~/.claude-mcp/spotify-mcp/.env` (step 3) — do not add an `env` block here.
 
 Restart Claude Code afterwards; MCP servers are loaded at startup.
 
