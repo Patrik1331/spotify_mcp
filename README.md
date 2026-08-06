@@ -57,15 +57,13 @@ Create `~/.spotify_mcp/.env` (`C:\Users\<you>\.spotify_mcp\.env` on Windows):
 
 ```env
 SPOTIFY_CLIENT_ID=your_client_id_here
+SPOTIFY_CLIENT_SECRET=your_client_secret_here
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
 ```
 
 This is the only file you need to create. The server reads it from that fixed
 path, so it works no matter which directory the MCP client launches it from —
 credentials never belong in your MCP client's config file.
-
-`SPOTIFY_CLIENT_SECRET` is optional: the auth flow uses PKCE and does not need
-it. Set it only if your Spotify app requires a confidential client.
 
 For local development you can instead keep a `.env` in the repo root
 (`cp .env.example .env`); `~/.spotify_mcp/.env` takes precedence.
