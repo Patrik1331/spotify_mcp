@@ -81,11 +81,21 @@ For local development you can instead keep a `.env` in the repo root
 
 ### 4. Authenticate
 
+Ask Claude to run the **`authenticate`** tool. It opens Spotify's authorization
+page in your browser, waits for you to approve, and stores the tokens — no shell
+command needed. Your credentials never pass through the client; only the URL does.
+
+The **`auth_status`** tool reports whether the server is configured and signed
+in, and what to fix if it isn't. A stdio MCP server always shows as connected,
+even with an empty `.env`, so use this rather than trusting the green check.
+
+From a terminal instead:
+
 ```bash
 uv run spotify-mcp-auth
 ```
 
-This opens your browser for Spotify authorization. After approving, tokens are saved to `~/.claude-mcp/spotify-mcp/tokens.json` and refreshed automatically.
+Either way, tokens are saved to `~/.claude-mcp/spotify-mcp/tokens.json` and refreshed automatically.
 
 ### 5. Add to Claude Code
 

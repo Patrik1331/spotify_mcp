@@ -481,6 +481,8 @@ def test_all_expected_tools_registered():
         "get_show", "get_show_episodes", "get_episode",
         # Audiobooks
         "get_audiobook", "get_audiobook_chapters", "get_chapter",
+        # Account / setup
+        "auth_status", "authenticate",
     }
 
     missing = expected - tools

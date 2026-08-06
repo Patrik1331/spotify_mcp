@@ -1,13 +1,16 @@
 """Spotify OAuth 2.0 Authorization Code + PKCE flow for MCP server."""
 
+import asyncio
 import base64
 import hashlib
 import json
 import os
 import secrets
 import ssl
+import threading
 import time
 import webbrowser
+from collections.abc import Awaitable, Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -132,6 +135,40 @@ def _refresh_access_token(refresh_token: str) -> dict[str, Any]:
     return tokens
 
 
+def missing_credentials() -> list[str]:
+    """Return the names of the credential variables that are not set."""
+    required = {
+        "SPOTIFY_CLIENT_ID": SPOTIFY_CLIENT_ID,
+        "SPOTIFY_REDIRECT_URI": SPOTIFY_REDIRECT_URI,
+    }
+    return [name for name, value in required.items() if not value]
+
+
+def has_tokens() -> bool:
+    """Whether a stored token file with a refresh token exists."""
+    tokens = _load_tokens()
+    return tokens is not None and bool(tokens.get("refresh_token"))
+
+
+def setup_hint() -> str:
+    """Explain the current setup problem in terms of what to actually do next.
+
+    A missing client id and a missing token look identical to a caller but need
+    opposite fixes, so never collapse them into one message.
+    """
+    missing = missing_credentials()
+    if missing:
+        return (
+            f"Spotify credentials are not configured: {', '.join(missing)} "
+            f"{'is' if len(missing) == 1 else 'are'} empty in {ENV_FILE}. "
+            "Fill the file in, then restart the MCP client so the server reloads it."
+        )
+    return (
+        "Not signed in to Spotify. Call the `authenticate` tool to sign in "
+        f"(or run `spotify-mcp-auth` from a shell). Tokens are stored in {TOKEN_FILE}."
+    )
+
+
 def get_tokens() -> dict[str, Any]:
     """Load tokens and refresh if expired. Raises if no tokens found.
 
@@ -139,17 +176,13 @@ def get_tokens() -> dict[str, Any]:
     """
     tokens = _load_tokens()
     if tokens is None:
-        raise RuntimeError(
-            "No Spotify tokens found. Run the auth flow first: spotify-mcp-auth"
-        )
+        raise RuntimeError(setup_hint())
 
     # Refresh if expired (with 60s buffer)
     if tokens.get("expires_at", 0) < time.time() + 60:
         refresh_token = tokens.get("refresh_token")
         if not refresh_token:
-            raise RuntimeError(
-                "Token expired and no refresh_token available. Re-run: spotify-mcp-auth"
-            )
+            raise RuntimeError(setup_hint())
         tokens = _refresh_access_token(refresh_token)
 
     return tokens
@@ -162,24 +195,22 @@ def refresh_access_token() -> dict[str, Any]:
     """
     tokens = _load_tokens()
     if tokens is None or "refresh_token" not in tokens:
-        raise RuntimeError("No refresh token available. Re-run: spotify-mcp-auth")
+        raise RuntimeError(setup_hint())
     return _refresh_access_token(tokens["refresh_token"])
 
 
-def run_auth_flow() -> None:
-    """Run the full OAuth 2.0 Authorization Code + PKCE flow.
+def build_authorization_request() -> tuple[str, str, str]:
+    """Build the Spotify authorize URL for a fresh PKCE flow.
 
-    Opens the browser for user authorization, starts a local server to receive
-    the callback, exchanges the code for tokens, and persists them to disk.
+    Returns (auth_url, code_verifier, state). The caller must keep the verifier
+    and state until the callback arrives.
     """
-    if not SPOTIFY_CLIENT_ID:
-        raise RuntimeError("SPOTIFY_CLIENT_ID not set. Add it to your .env file.")
+    if missing_credentials():
+        raise RuntimeError(setup_hint())
 
     code_verifier = _generate_code_verifier()
-    code_challenge = _generate_code_challenge(code_verifier)
     state = secrets.token_urlsafe(32)
 
-    # Build authorization URL
     auth_params = urlencode({
         "client_id": SPOTIFY_CLIENT_ID,
         "response_type": "code",
@@ -187,18 +218,16 @@ def run_auth_flow() -> None:
         "scope": SCOPES,
         "state": state,
         "code_challenge_method": "S256",
-        "code_challenge": code_challenge,
+        "code_challenge": _generate_code_challenge(code_verifier),
     })
-    auth_url = f"{SPOTIFY_AUTH_URL}?{auth_params}"
+    return f"{SPOTIFY_AUTH_URL}?{auth_params}", code_verifier, state
 
-    # Container for the authorization code received via callback
-    auth_result: dict[str, str | None] = {"code": None, "error": None}
 
-    # Parse redirect URI to determine server port
-    parsed_redirect = urlparse(SPOTIFY_REDIRECT_URI)
-    default_port = 443 if parsed_redirect.scheme == "https" else 80
-    server_port = parsed_redirect.port or default_port
+def _make_callback_server(state: str, result: dict[str, str | None]) -> HTTPServer:
+    """Build the loopback HTTP server that catches Spotify's OAuth redirect.
 
+    Writes the authorization code (or error) into *result*.
+    """
     class CallbackHandler(BaseHTTPRequestHandler):
         """HTTP handler that captures the OAuth callback."""
 
@@ -212,22 +241,22 @@ def run_auth_flow() -> None:
                 return
 
             if "error" in params:
-                auth_result["error"] = params["error"][0]
+                result["error"] = params["error"][0]
                 self._respond("Authorization failed. You can close this window.")
                 return
 
             received_state = params.get("state", [None])[0]
             if received_state != state:
-                auth_result["error"] = "State mismatch"
+                result["error"] = "State mismatch"
                 self._respond("State mismatch error. You can close this window.")
                 return
 
             code = params.get("code", [None])[0]
             if code:
-                auth_result["code"] = code
+                result["code"] = code
                 self._respond("Authorization successful! You can close this window.")
             else:
-                auth_result["error"] = "No authorization code received"
+                result["error"] = "No authorization code received"
                 self._respond("No code received. You can close this window.")
 
         def _respond(self, message: str) -> None:
@@ -241,8 +270,9 @@ def run_auth_flow() -> None:
             # Suppress default logging
             pass
 
-    # Start local server, open browser, wait for callback
-    server = HTTPServer(("localhost", server_port), CallbackHandler)
+    parsed_redirect = urlparse(SPOTIFY_REDIRECT_URI)
+    default_port = 443 if parsed_redirect.scheme == "https" else 80
+    server = HTTPServer(("localhost", parsed_redirect.port or default_port), CallbackHandler)
 
     # Wrap with SSL if redirect URI uses HTTPS
     if SPOTIFY_REDIRECT_URI.startswith("https://"):
@@ -250,35 +280,24 @@ def run_auth_flow() -> None:
         certfile = cert_dir / "localhost.crt"
         keyfile = cert_dir / "localhost.key"
         if not certfile.exists() or not keyfile.exists():
+            server.server_close()
             raise RuntimeError(
                 f"HTTPS redirect requires SSL certs at {cert_dir}/. "
                 "Generate with: openssl req -x509 -newkey rsa:2048 "
                 "-keyout localhost.key -out localhost.crt -days 365 -nodes -subj '/CN=localhost'"
             )
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(certfile=str(certfile), keyfile=str(keyfile))
-        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(certfile=str(certfile), keyfile=str(keyfile))
+        server.socket = ssl_ctx.wrap_socket(server.socket, server_side=True)
 
-    print("Opening browser for Spotify authorization...")
-    print(f"If it doesn't open automatically, visit:\n{auth_url}\n")
-    webbrowser.open(auth_url)
+    return server
 
-    # Handle requests until we get the OAuth callback (code or error)
-    server.timeout = 120  # 2 minute timeout
-    while auth_result["code"] is None and auth_result["error"] is None:
-        server.handle_request()
-    server.server_close()
 
-    if auth_result["error"]:
-        raise RuntimeError(f"Authorization failed: {auth_result['error']}")
-
-    if not auth_result["code"]:
-        raise RuntimeError("No authorization code received.")
-
-    # Exchange authorization code for tokens
+def exchange_code_for_tokens(code: str, code_verifier: str) -> dict[str, Any]:
+    """Exchange an authorization code for tokens and persist them."""
     token_payload: dict[str, str] = {
         "grant_type": "authorization_code",
-        "code": auth_result["code"],
+        "code": code,
         "redirect_uri": SPOTIFY_REDIRECT_URI,
         "client_id": SPOTIFY_CLIENT_ID,
         "code_verifier": code_verifier,
@@ -298,7 +317,69 @@ def run_auth_flow() -> None:
         "token_type": data["token_type"],
     }
     _save_tokens(tokens)
+    return tokens
 
+
+async def authorize(
+    present_url: Callable[[str], Awaitable[bool]],
+    timeout: float = 300.0,
+) -> dict[str, Any]:
+    """Run the PKCE flow, delegating how the URL reaches the user to the caller.
+
+    *present_url* receives the authorize URL and returns whether the user agreed
+    to open it. This keeps the flow usable both from a terminal (open a browser)
+    and from an MCP client (URL mode elicitation), without duplicating it.
+    """
+    auth_url, code_verifier, state = build_authorization_request()
+    result: dict[str, str | None] = {"code": None, "error": None}
+    server = _make_callback_server(state, result)
+    server.timeout = 1.0  # poll, so the thread can notice `stop` and exit
+
+    stop = threading.Event()
+    loop = asyncio.get_running_loop()
+    finished = asyncio.Event()
+
+    def serve() -> None:
+        while not stop.is_set() and result["code"] is None and result["error"] is None:
+            server.handle_request()
+        loop.call_soon_threadsafe(finished.set)
+
+    thread = threading.Thread(target=serve, name="spotify-oauth-callback", daemon=True)
+    thread.start()
+
+    try:
+        if not await present_url(auth_url):
+            raise RuntimeError("Authorization was declined before the browser opened.")
+        try:
+            await asyncio.wait_for(finished.wait(), timeout)
+        except TimeoutError:
+            raise RuntimeError(
+                f"Timed out after {int(timeout)}s waiting for the Spotify redirect. "
+                "Make sure the redirect URI in your Spotify app matches "
+                f"{SPOTIFY_REDIRECT_URI} exactly."
+            ) from None
+    finally:
+        stop.set()
+        server.server_close()
+
+    if result["error"]:
+        raise RuntimeError(f"Authorization failed: {result['error']}")
+    if not result["code"]:
+        raise RuntimeError("No authorization code received.")
+
+    return exchange_code_for_tokens(result["code"], code_verifier)
+
+
+def run_auth_flow() -> None:
+    """Run the OAuth flow from a terminal, opening the browser directly."""
+
+    async def open_in_browser(url: str) -> bool:
+        print("Opening browser for Spotify authorization...")
+        print(f"If it doesn't open automatically, visit:\n{url}\n")
+        webbrowser.open(url)
+        return True
+
+    asyncio.run(authorize(open_in_browser))
     print("Tokens saved to", TOKEN_FILE)
     print("Authentication complete!")
 

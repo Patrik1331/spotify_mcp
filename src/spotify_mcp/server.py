@@ -3,6 +3,7 @@
 from .app import mcp  # noqa: F401 — re-export for convenience
 
 # Import tools modules to trigger @mcp.tool() registration
+from .tools import account as account  # noqa: F401
 from .tools import albums as albums  # noqa: F401
 from .tools import artists as artists  # noqa: F401
 from .tools import audiobooks as audiobooks  # noqa: F401
