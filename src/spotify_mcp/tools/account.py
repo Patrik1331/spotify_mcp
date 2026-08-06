@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import webbrowser
 
 from mcp.server.mcpserver import Context
 
@@ -41,12 +42,16 @@ def _url_elicitation_refused(ctx: Context) -> bool:
     return getattr(elicitation, "url", None) is None
 
 
-def _manual_fallback(url: str, reason: str) -> RuntimeError:
-    """Turn an unusable prompt into a tool error that still carries the URL."""
-    return RuntimeError(
-        f"{reason} Open this URL in your browser to finish signing in, then call "
-        f"`auth_status` to confirm:\n{url}"
-    )
+def _open_locally(url: str) -> bool:
+    """Open the authorize URL from this process.
+
+    The server runs on the user's machine, so it can drive the browser itself
+    when the client cannot. This is the only fallback that works: the loopback
+    listener lives for the duration of the sign-in call, so a URL handed back
+    in an error message points at a port that is already closed by the time
+    anyone reads it.
+    """
+    return webbrowser.open(url)
 
 
 @mcp.tool()
@@ -112,29 +117,37 @@ async def authenticate(ctx: Context) -> str:
 
     async def present(url: str) -> bool:
         nonlocal prompt_sent
-        if _url_elicitation_refused(ctx):
-            raise _manual_fallback(
-                url, "This client does not support server-initiated URL prompts."
-            )
+        result = None
+        if not _url_elicitation_refused(ctx):
+            try:
+                result = await ctx.elicit_url(
+                    message="Authorize spotify-mcp to access your Spotify account.",
+                    url=url,
+                    elicitation_id=elicitation_id,
+                )
+            except Exception:  # noqa: BLE001 — any failure means: prompt it ourselves
+                result = None
 
-        try:
-            result = await ctx.elicit_url(
-                message="Authorize spotify-mcp to access your Spotify account.",
-                url=url,
-                elicitation_id=elicitation_id,
-            )
-        except Exception as exc:  # noqa: BLE001 — any transport failure is the same to us
-            raise _manual_fallback(
-                url, f"Could not show the authorization prompt ({exc})."
-            ) from exc
+        if result is not None:
+            prompt_sent = True
+            if result.action != "accept":
+                raise RuntimeError(
+                    f"Authorization was {result.action}ed. Call `authenticate` "
+                    "again to retry."
+                )
+            return True
 
-        prompt_sent = True
-        if result.action != "accept":
-            raise RuntimeError(
-                f"Authorization was {result.action}ed. Call `authenticate` again "
-                "to retry."
-            )
-        return True
+        # Must happen now, while the loopback listener is still up.
+        if _open_locally(url):
+            return True
+
+        raise RuntimeError(
+            "Could not show an authorization prompt and could not open a browser "
+            "on this machine. Run `spotify-mcp-auth` in a terminal instead — it "
+            "runs the same flow with its own listener. Opening the URL below on "
+            f"its own will not work, because nothing is listening for the "
+            f"redirect once this call returns:\n{url}"
+        )
 
     try:
         await authorize(present)
