@@ -78,3 +78,43 @@ async def get_artist_albums(
     }, indent=2)
 
 
+@mcp.tool()
+async def get_followed_artists(limit: int = 50, after: str | None = None) -> str:
+    """Get artists followed by the current user.
+
+    Artists use cursor-based pagination (not offset), so pass the
+    returned `next_after` value back in as `after` to fetch the next page.
+
+    Args:
+        limit: Max artists to return (1-50, default 50).
+        after: Cursor — the last artist ID from the previous page, to
+               continue listing after it. Omit to get the first page.
+
+    Returns list of followed artists with genres.
+    """
+    params: dict[str, Any] = {"type": "artist", "limit": limit}
+    if after:
+        params["after"] = after
+
+    async with SpotifyClient() as sp:
+        data = await sp.get("me/following", params=params)
+
+    block = data.get("artists", {})
+    artists: list[dict[str, Any]] = []
+    for a in block.get("items", []):
+        artists.append({
+            "id": a["id"],
+            "name": a.get("name"),
+            "genres": a.get("genres", []),
+            "uri": a.get("uri"),
+            "external_url": a.get("external_urls", {}).get("spotify"),
+        })
+
+    return json.dumps({
+        "artists": artists,
+        "total": block.get("total", 0),
+        "has_next": block.get("next") is not None,
+        "next_after": block.get("cursors", {}).get("after"),
+    }, indent=2)
+
+

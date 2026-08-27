@@ -12,6 +12,7 @@ Control Spotify from Claude — search, manage playlists, control playback, and 
 - **Playback Control** — Play, pause, skip, volume, queue
 - **Library** — Save/remove items from your library
 - **Browse** — Categories, recommendations
+- **BPM Lookup** — Get the tempo of a track or every track in a playlist, via [GetSongBPM](https://getsongbpm.com) (Spotify no longer exposes tempo data itself)
 
 ## Setup
 
@@ -111,6 +112,26 @@ claude mcp add spotify --scope user -- \
 
 Restart Claude Code afterwards; MCP servers are loaded at startup.
 
+### 6. Optional: BPM Lookup
+
+Spotify retired its own tempo/audio-features endpoint, so `get_track_bpm` and
+`get_playlist_bpm` look up BPM via the third-party
+[GetSongBPM](https://getsongbpm.com) API instead. Without a key, every other
+tool still works — these two just return an error telling you what's missing.
+
+1. Go to [getsongbpm.com/api](https://getsongbpm.com/api) and fill in the form:
+   - **Website URL or App ID/Package Name**: this repo's URL is fine —
+     `https://github.com/Patrik1331/spotify_mcp`
+   - **Backlink URL**: mandatory for a free key. This README's credit link
+     below satisfies it.
+   - **Email**: your key gets sent here.
+2. Add the key to `~/.claude-mcp/spotify-mcp/.env` (same file as your Spotify
+   credentials):
+
+```env
+GETSONGBPM_API_KEY=
+```
+
 ## Usage Examples
 
 **Dance Mix:**
@@ -122,6 +143,13 @@ Restart Claude Code afterwards; MCP servers are loaded at startup.
 **Playback:**
 > "Play my new dance mix playlist"
 
+**BPM:**
+> "What's the BPM of every song in my Bachata playlist?"
+
 ## License
 
 MIT
+
+---
+
+BPM data powered by [GetSongBPM](https://getsongbpm.com).

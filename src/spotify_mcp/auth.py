@@ -30,6 +30,10 @@ ENV_TEMPLATE = """\
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
 SPOTIFY_REDIRECT_URI=
+
+# Optional: enables get_track_bpm / get_playlist_bpm (Spotify has no tempo
+# data of its own). Free key at https://getsongbpm.com/api
+GETSONGBPM_API_KEY=
 """
 
 

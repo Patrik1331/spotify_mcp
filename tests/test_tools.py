@@ -170,6 +170,37 @@ async def test_get_artist(mock_spotify_client):
     assert "reggaeton" in result["genres"]
 
 
+@pytest.mark.asyncio
+async def test_get_followed_artists(mock_spotify_client):
+    mock_spotify_client.set_response("me/following", {
+        "artists": {
+            "items": [
+                {
+                    "id": "a1",
+                    "name": "Followed Artist",
+                    "genres": ["bachata"],
+                    "uri": "spotify:artist:a1",
+                    "external_urls": {"spotify": "..."},
+                },
+            ],
+            "total": 1,
+            "next": None,
+            "cursors": {"after": "a1"},
+        },
+    })
+
+    from spotify_mcp.tools.artists import get_followed_artists
+    result = json.loads(await get_followed_artists())
+
+    assert result["artists"][0]["name"] == "Followed Artist"
+    assert result["total"] == 1
+    assert result["has_next"] is False
+    assert result["next_after"] == "a1"
+
+    get_calls = [c for c in mock_spotify_client.calls if c[0] == "GET"]
+    assert get_calls[0][2]["type"] == "artist"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Users
 # ═══════════════════════════════════════════════════════════════════════════
@@ -465,7 +496,9 @@ def test_all_expected_tools_registered():
         # Albums
         "get_album", "get_album_tracks", "get_saved_albums",
         # Artists
-        "get_artist", "get_artist_albums",
+        "get_artist", "get_artist_albums", "get_followed_artists",
+        # BPM
+        "get_track_bpm", "get_playlist_bpm",
         # Player
         "get_playback_state", "get_devices", "get_currently_playing",
         "play", "pause", "next_track", "previous_track", "seek",

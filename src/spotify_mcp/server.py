@@ -7,6 +7,7 @@ from .tools import account as account  # noqa: F401
 from .tools import albums as albums  # noqa: F401
 from .tools import artists as artists  # noqa: F401
 from .tools import audiobooks as audiobooks  # noqa: F401
+from .tools import bpm as bpm  # noqa: F401
 from .tools import library as library  # noqa: F401
 from .tools import player as player  # noqa: F401
 from .tools import playlists as playlists  # noqa: F401

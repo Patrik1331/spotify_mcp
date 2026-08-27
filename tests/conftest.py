@@ -28,6 +28,7 @@ def mock_spotify_client():
         "spotify_mcp.tools.library",
         "spotify_mcp.tools.shows",
         "spotify_mcp.tools.audiobooks",
+        "spotify_mcp.tools.bpm",
     ]
 
     patches = [patch(f"{mod}.SpotifyClient", return_value=client) for mod in modules]
